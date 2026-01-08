@@ -1,0 +1,64 @@
+name: Reusable GitOps Deploy
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: 'Docker image name (e.g., alaej/travelo-frontend)'
+        required: true
+        type: string
+      yaml-file:
+        description: 'YAML file to update (e.g., frontend.yaml or backend.yaml)'
+        required: true
+        type: string
+      infra-repo:
+        description: 'Infrastructure repository (e.g., yassinelamsaaf/travelo-infra)'
+        required: true
+        type: string
+      support-version-tags:
+        description: 'Support version tags (v*)'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      infra-token:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout infra repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.infra-repo }}
+          token: ${{ secrets.infra-token }}
+          path: infra
+
+      - name: Update image tag (with version tags)
+        if: ${{ inputs.support-version-tags }}
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=${{ github.sha }}
+          fi
+          echo "Updating infra/travelo-k8s/${{ inputs.yaml-file }} to image tag $VERSION"
+          sed -i "s|image: .*${{ inputs.image-name }}:.*|image: ${{ inputs.image-name }}:${VERSION}|" infra/travelo-k8s/${{ inputs.yaml-file }} || true
+
+      - name: Update image tag (no version tags)
+        if: ${{ !inputs.support-version-tags }}
+        run: |
+          VERSION=${{ github.sha }}
+          echo "Updating infra/travelo-k8s/${{ inputs.yaml-file }} to image tag $VERSION"
+          sed -i "s|image: .*${{ inputs.image-name }}:.*|image: ${{ inputs.image-name }}:${VERSION}|" infra/travelo-k8s/${{ inputs.yaml-file }} || true
+
+      - name: Commit & push changes
+        run: |
+          cd infra
+          git config user.name "github-actions"
+          git config user.email "ci@github.com"
+          git add travelo-k8s/${{ inputs.yaml-file }}
+          git commit -m "ci: update ${{ inputs.yaml-file }} image to ${VERSION:-${{ github.sha }}}" || echo "no changes to commit"
+          git push origin HEAD:main || echo "push failed"
