@@ -1,0 +1,72 @@
+name: Reusable Security Scan
+
+on:
+  workflow_call:
+    inputs:
+      scan-type:
+        description: 'Scan type (fs for filesystem, image for Docker image)'
+        required: false
+        type: string
+        default: 'fs'
+      severity:
+        description: 'Severity levels to report (e.g., HIGH,CRITICAL)'
+        required: false
+        type: string
+        default: 'HIGH,CRITICAL'
+      image-name:
+        description: 'Docker image name (required if scan-type is image)'
+        required: false
+        type: string
+      artifact-name:
+        description: 'Artifact name to download (required if scan-type is image)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        if: ${{ inputs.scan-type == 'fs' }}
+        uses: actions/checkout@v4
+
+      - name: Download image artifact
+        if: ${{ inputs.scan-type == 'image' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+
+      - name: Load Docker image
+        if: ${{ inputs.scan-type == 'image' }}
+        run: docker load -i ${{ inputs.artifact-name }}.tar
+
+      - name: Run Trivy scanner (filesystem)
+        if: ${{ inputs.scan-type == 'fs' }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: ${{ inputs.severity }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Run Trivy scanner (Docker image)
+        if: ${{ inputs.scan-type == 'image' }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: ${{ inputs.image-name }}:${{ github.sha }}
+          severity: ${{ inputs.severity }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
