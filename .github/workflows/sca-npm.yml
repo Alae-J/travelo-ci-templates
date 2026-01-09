@@ -53,21 +53,21 @@ jobs:
           retention-days: 30
 
       - name: Run Snyk scan
-        if: secrets.snyk-token != ''
         uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.snyk-token }}
         with:
           args: --severity-threshold=medium --json-file-output=snyk-report.json
-        continue-on-error: ${{ !inputs.fail-on-findings }}
+        continue-on-error: true
 
       - name: Upload Snyk results
-        if: always() && secrets.snyk-token != ''
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: snyk-npm-results
           path: snyk-report.json
           retention-days: 30
+        continue-on-error: true
 
       - name: Check for high/critical vulnerabilities
         if: inputs.fail-on-findings

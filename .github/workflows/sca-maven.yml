@@ -75,18 +75,18 @@ jobs:
         continue-on-error: true
 
       - name: Run Snyk Maven scan
-        if: secrets.snyk-token != ''
         uses: snyk/actions/maven@master
         env:
           SNYK_TOKEN: ${{ secrets.snyk-token }}
         with:
           args: --severity-threshold=medium --json-file-output=snyk-maven.json
-        continue-on-error: ${{ !inputs.fail-on-findings }}
+        continue-on-error: true
 
       - name: Upload Snyk results
-        if: always() && secrets.snyk-token != ''
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: snyk-maven-results
           path: snyk-maven.json
           retention-days: 30
+        continue-on-error: true

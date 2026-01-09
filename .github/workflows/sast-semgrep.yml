@@ -34,7 +34,6 @@ jobs:
         uses: returntocorp/semgrep-action@v1
         with:
           config: ${{ inputs.config }}
-          generateSarif: true
         continue-on-error: ${{ !inputs.fail-on-findings }}
 
       - name: Upload Semgrep SARIF to GitHub Security
