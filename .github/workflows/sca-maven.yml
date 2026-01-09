@@ -1,0 +1,92 @@
+name: Reusable SCA - Maven
+
+on:
+  workflow_call:
+    inputs:
+      cvss-threshold:
+        description: 'CVSS score threshold (0-10, default: 5)'
+        required: false
+        type: number
+        default: 5
+      java-version:
+        description: 'Java version (default: 23)'
+        required: false
+        type: string
+        default: '23'
+      fail-on-findings:
+        description: 'Fail pipeline on findings (default: true)'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      snyk-token:
+        description: 'Snyk API token (optional)'
+        required: false
+
+jobs:
+  maven-dependency-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Run OWASP Dependency-Check
+        run: |
+          ./mvnw org.owasp:dependency-check-maven:check \
+            -DfailBuildOnCVSS=${{ inputs.cvss-threshold }} \
+            -DsuppressionFiles=dependency-check-suppressions.xml \
+            -Dformats=HTML,JSON,SARIF
+        continue-on-error: ${{ !inputs.fail-on-findings }}
+
+      - name: Upload Dependency-Check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: |
+            target/dependency-check-report.html
+            target/dependency-check-report.json
+            target/dependency-check-report.sarif
+          retention-days: 30
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: target/dependency-check-report.sarif
+          category: dependency-check
+        continue-on-error: true
+
+      - name: Run Snyk Maven scan
+        if: secrets.snyk-token != ''
+        uses: snyk/actions/maven@master
+        env:
+          SNYK_TOKEN: ${{ secrets.snyk-token }}
+        with:
+          args: --severity-threshold=medium --json-file-output=snyk-maven.json
+        continue-on-error: ${{ !inputs.fail-on-findings }}
+
+      - name: Upload Snyk results
+        if: always() && secrets.snyk-token != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-maven-results
+          path: snyk-maven.json
+          retention-days: 30

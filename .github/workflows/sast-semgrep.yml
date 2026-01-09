@@ -1,0 +1,54 @@
+name: Reusable SAST - Semgrep
+
+on:
+  workflow_call:
+    inputs:
+      scan-ref:
+        description: 'Directory or ref to scan (default: .)'
+        required: false
+        type: string
+        default: '.'
+      config:
+        description: 'Semgrep config (default: auto)'
+        required: false
+        type: string
+        default: 'auto'
+      fail-on-findings:
+        description: 'Fail pipeline on findings (default: true)'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep SAST
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: ${{ inputs.config }}
+          generateSarif: true
+        continue-on-error: ${{ !inputs.fail-on-findings }}
+
+      - name: Upload Semgrep SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+        continue-on-error: true
+
+      - name: Upload Semgrep results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-results
+          path: semgrep.sarif
+          retention-days: 30

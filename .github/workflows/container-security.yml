@@ -1,0 +1,140 @@
+name: Reusable Container Security
+
+on:
+  workflow_call:
+    inputs:
+      scan-type:
+        description: 'Scan type (fs for filesystem, image for Docker image, config for IaC)'
+        required: false
+        type: string
+        default: 'image'
+      severity:
+        description: 'Severity levels to report (e.g., MEDIUM,HIGH,CRITICAL)'
+        required: false
+        type: string
+        default: 'HIGH,CRITICAL'
+      image-name:
+        description: 'Docker image name (required if scan-type is image)'
+        required: false
+        type: string
+      artifact-name:
+        description: 'Artifact name to download (required if scan-type is image)'
+        required: false
+        type: string
+      fail-on-findings:
+        description: 'Fail pipeline on findings (default: true)'
+        required: false
+        type: boolean
+        default: true
+      scan-dockerfile:
+        description: 'Also scan Dockerfile for misconfigurations (default: true)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  container-security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download image artifact
+        if: ${{ inputs.scan-type == 'image' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+
+      - name: Load Docker image
+        if: ${{ inputs.scan-type == 'image' }}
+        run: docker load -i ${{ inputs.artifact-name }}.tar
+
+      # Scan 1: Dockerfile/IaC misconfigurations
+      - name: Trivy Config Scan (Dockerfile)
+        if: ${{ inputs.scan-dockerfile && inputs.scan-type == 'image' }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          severity: ${{ inputs.severity }}
+          format: 'sarif'
+          output: 'trivy-config.sarif'
+          exit-code: ${{ inputs.fail-on-findings && '1' || '0' }}
+        continue-on-error: ${{ !inputs.fail-on-findings }}
+
+      - name: Upload Config Scan SARIF
+        if: always() && inputs.scan-dockerfile && inputs.scan-type == 'image'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-config.sarif'
+          category: trivy-config
+        continue-on-error: true
+
+      # Scan 2: Filesystem scan
+      - name: Run Trivy scanner (filesystem)
+        if: ${{ inputs.scan-type == 'fs' }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: ${{ inputs.severity }}
+          format: 'sarif'
+          output: 'trivy-fs.sarif'
+          exit-code: ${{ inputs.fail-on-findings && '1' || '0' }}
+        continue-on-error: ${{ !inputs.fail-on-findings }}
+
+      - name: Upload Filesystem SARIF
+        if: always() && inputs.scan-type == 'fs'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-fs.sarif'
+          category: trivy-fs
+        continue-on-error: true
+
+      # Scan 3: Docker image scan
+      - name: Run Trivy scanner (Docker image)
+        if: ${{ inputs.scan-type == 'image' }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: ${{ inputs.image-name }}:${{ github.sha }}
+          severity: ${{ inputs.severity }}
+          format: 'sarif'
+          output: 'trivy-image.sarif'
+          exit-code: ${{ inputs.fail-on-findings && '1' || '0' }}
+        continue-on-error: ${{ !inputs.fail-on-findings }}
+
+      - name: Upload Image Scan SARIF
+        if: always() && inputs.scan-type == 'image'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-image.sarif'
+          category: trivy-image
+        continue-on-error: true
+
+      # Generate JSON report for metrics
+      - name: Generate JSON report
+        if: always() && inputs.scan-type == 'image'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: ${{ inputs.image-name }}:${{ github.sha }}
+          severity: ${{ inputs.severity }}
+          format: 'json'
+          output: 'trivy-results.json'
+        continue-on-error: true
+
+      - name: Upload Trivy reports as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-reports
+          path: |
+            trivy-*.sarif
+            trivy-*.json
+          retention-days: 30

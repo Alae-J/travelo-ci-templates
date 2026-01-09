@@ -1,0 +1,65 @@
+name: Reusable DAST - OWASP ZAP
+
+on:
+  workflow_call:
+    inputs:
+      target-url:
+        description: 'Target URL to scan (e.g., http://localhost:8080)'
+        required: true
+        type: string
+      scan-mode:
+        description: 'Scan mode: baseline (passive) or full (active)'
+        required: false
+        type: string
+        default: 'baseline'
+      fail-on-findings:
+        description: 'Fail pipeline on findings (default: false for DAST)'
+        required: false
+        type: boolean
+        default: false
+      rules-file:
+        description: 'Path to ZAP rules file (optional)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  dast-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: ZAP Baseline Scan
+        if: ${{ inputs.scan-mode == 'baseline' }}
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: ${{ inputs.target-url }}
+          rules_file_name: ${{ inputs.rules-file }}
+          cmd_options: '-a'
+          allow_issue_writing: false
+          fail_action: ${{ inputs.fail-on-findings }}
+
+      - name: ZAP Full Scan
+        if: ${{ inputs.scan-mode == 'full' }}
+        uses: zaproxy/action-full-scan@v0.10.0
+        with:
+          target: ${{ inputs.target-url }}
+          rules_file_name: ${{ inputs.rules-file }}
+          allow_issue_writing: false
+          fail_action: ${{ inputs.fail-on-findings }}
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: |
+            report_html.html
+            report_md.md
+            report_json.json
+          retention-days: 30

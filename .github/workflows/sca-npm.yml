@@ -1,0 +1,92 @@
+name: Reusable SCA - npm
+
+on:
+  workflow_call:
+    inputs:
+      audit-level:
+        description: 'npm audit level (moderate, high, critical)'
+        required: false
+        type: string
+        default: 'moderate'
+      fail-on-findings:
+        description: 'Fail pipeline on findings (default: true)'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      snyk-token:
+        description: 'Snyk API token (optional)'
+        required: false
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        id: npm-audit
+        run: |
+          npm audit --audit-level=${{ inputs.audit-level }} --json > npm-audit.json || true
+          npm audit --audit-level=${{ inputs.audit-level }}
+        continue-on-error: ${{ !inputs.fail-on-findings }}
+
+      - name: Upload npm audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: npm-audit.json
+          retention-days: 30
+
+      - name: Run Snyk scan
+        if: secrets.snyk-token != ''
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.snyk-token }}
+        with:
+          args: --severity-threshold=medium --json-file-output=snyk-report.json
+        continue-on-error: ${{ !inputs.fail-on-findings }}
+
+      - name: Upload Snyk results
+        if: always() && secrets.snyk-token != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-npm-results
+          path: snyk-report.json
+          retention-days: 30
+
+      - name: Check for high/critical vulnerabilities
+        if: inputs.fail-on-findings
+        run: |
+          CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' npm-audit.json)
+          HIGH=$(jq '.metadata.vulnerabilities.high // 0' npm-audit.json)
+          MODERATE=$(jq '.metadata.vulnerabilities.moderate // 0' npm-audit.json)
+
+          echo "Critical: $CRITICAL, High: $HIGH, Moderate: $MODERATE"
+
+          if [ "${{ inputs.audit-level }}" = "critical" ] && [ "$CRITICAL" -gt 0 ]; then
+            echo "ERROR: Found $CRITICAL critical vulnerabilities (threshold: critical)"
+            exit 1
+          elif [ "${{ inputs.audit-level }}" = "high" ] && [ $((CRITICAL + HIGH)) -gt 0 ]; then
+            echo "ERROR: Found $((CRITICAL + HIGH)) high/critical vulnerabilities (threshold: high)"
+            exit 1
+          elif [ "${{ inputs.audit-level }}" = "moderate" ] && [ $((CRITICAL + HIGH + MODERATE)) -gt 0 ]; then
+            echo "ERROR: Found $((CRITICAL + HIGH + MODERATE)) moderate+ vulnerabilities (threshold: moderate)"
+            exit 1
+          fi
+
+          echo "No vulnerabilities above threshold"
