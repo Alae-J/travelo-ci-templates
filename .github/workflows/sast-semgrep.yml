@@ -30,11 +30,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run Semgrep SAST
-        uses: returntocorp/semgrep-action@v1
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          config: ${{ inputs.config }}
-          sarif: semgrep.sarif
+          python-version: '3.11'
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Run Semgrep SAST
+        run: |
+          semgrep scan --config ${{ inputs.config }} --sarif --output semgrep.sarif .
         continue-on-error: ${{ !inputs.fail-on-findings }}
 
       - name: Upload Semgrep SARIF to GitHub Security
