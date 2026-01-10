@@ -45,6 +45,8 @@ jobs:
           CONFIG_FLAGS=""
           IFS=',' read -ra CONFIG_ARRAY <<< "$CONFIGS"
           for cfg in "${CONFIG_ARRAY[@]}"; do
+            # Trim whitespace
+            cfg=$(echo "$cfg" | xargs)
             CONFIG_FLAGS="$CONFIG_FLAGS --config $cfg"
           done
           semgrep scan $CONFIG_FLAGS --sarif --output semgrep.sarif .
