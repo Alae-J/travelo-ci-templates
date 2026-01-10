@@ -53,7 +53,7 @@ jobs:
             -DfailBuildOnCVSS=${{ inputs.cvss-threshold }} \
             -DsuppressionFiles=dependency-check-suppressions.xml \
             -Dformats=HTML,JSON,SARIF
-        continue-on-error: ${{ !inputs.fail-on-findings }}
+        continue-on-error: true  # OWASP DB unreliable in CI, Snyk is primary scanner
 
       - name: Upload Dependency-Check report
         if: always()
