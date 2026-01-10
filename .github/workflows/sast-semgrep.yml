@@ -40,7 +40,14 @@ jobs:
 
       - name: Run Semgrep SAST
         run: |
-          semgrep scan --config ${{ inputs.config }} --sarif --output semgrep.sarif .
+          # Convert comma-separated configs to multiple --config flags
+          CONFIGS="${{ inputs.config }}"
+          CONFIG_FLAGS=""
+          IFS=',' read -ra CONFIG_ARRAY <<< "$CONFIGS"
+          for cfg in "${CONFIG_ARRAY[@]}"; do
+            CONFIG_FLAGS="$CONFIG_FLAGS --config $cfg"
+          done
+          semgrep scan $CONFIG_FLAGS --sarif --output semgrep.sarif .
         continue-on-error: ${{ !inputs.fail-on-findings }}
 
       - name: Upload Semgrep SARIF to GitHub Security
