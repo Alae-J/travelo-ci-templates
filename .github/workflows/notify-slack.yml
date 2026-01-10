@@ -1,0 +1,90 @@
+name: Reusable Slack Notification
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: 'Application name (e.g., Frontend, Backend)'
+        required: true
+        type: string
+      failed-scans:
+        description: 'Comma-separated list of failed scans (e.g., SAST,SCA,Container)'
+        required: true
+        type: string
+      workflow-url:
+        description: 'URL to the failed workflow run'
+        required: true
+        type: string
+      branch:
+        description: 'Branch name'
+        required: true
+        type: string
+    secrets:
+      slack-webhook-url:
+        description: 'Slack incoming webhook URL'
+        required: true
+
+jobs:
+  send-notification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack notification
+        run: |
+          # Format failed scans as bullet list
+          FAILED_LIST=$(echo "${{ inputs.failed-scans }}" | sed 's/,/\\n• /g' | sed 's/^/• /')
+
+          payload=$(jq -n \
+            --arg app "${{ inputs.app-name }}" \
+            --arg failed "$FAILED_LIST" \
+            --arg url "${{ inputs.workflow-url }}" \
+            --arg branch "${{ inputs.branch }}" \
+            '{
+              text: ("🚨 Security Scan Failed - " + $app),
+              blocks: [
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: ("🚨 *Security vulnerabilities detected in " + $app + "*")
+                  }
+                },
+                {
+                  type: "section",
+                  fields: [
+                    {
+                      type: "mrkdwn",
+                      text: ("*Application:*\n" + $app)
+                    },
+                    {
+                      type: "mrkdwn",
+                      text: ("*Branch:*\n" + $branch)
+                    }
+                  ]
+                },
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: ("*Failed Scans:*\n" + $failed)
+                  }
+                },
+                {
+                  type: "actions",
+                  elements: [
+                    {
+                      type: "button",
+                      text: {
+                        type: "plain_text",
+                        text: "View Details"
+                      },
+                      url: $url,
+                      style: "danger"
+                    }
+                  ]
+                }
+              ]
+            }')
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "${{ secrets.slack-webhook-url }}"
